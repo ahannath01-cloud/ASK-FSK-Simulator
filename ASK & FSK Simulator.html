@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ASK &amp; FSK Simulator</title>
+<style>
+:root {
+  --bg:#f7f7f5; --panel:#ffffff; --border:#dcdad3; --text:#1a1a1a; --sub:#5a5a55;
+  --accent:#185fa5; --good:#3b6d11; --bad:#a32d2d;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg:#17171a; --panel:#232326; --border:#3a3a3d; --text:#eee; --sub:#aaa;
+  --accent:#5aa4ec; --good:#97c459; --bad:#f09595; }
+}
+:root[data-theme="dark"] { --bg:#17171a; --panel:#232326; --border:#3a3a3d; --text:#eee; --sub:#aaa;
+  --accent:#5aa4ec; --good:#97c459; --bad:#f09595; }
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5;}
+.wrap{max-width:960px;margin:0 auto;padding:1.5rem 1rem 3rem;}
+h1{font-size:1.3rem;margin:0 0 .25rem;}
+h2{font-size:1.05rem;margin:1.6rem 0 .5rem;color:var(--accent);}
+p.sub{color:var(--sub);margin:0 0 1rem;font-size:.9rem;}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:1rem;margin-bottom:1rem;}
+.row{display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;margin-bottom:.5rem;}
+.field{display:flex;flex-direction:column;font-size:.8rem;color:var(--sub);gap:.25rem;}
+.field select,.field input[type=number],.field input[type=text]{padding:.35rem .4rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);width:130px;}
+.field input[type=range]{width:150px;}
+button{background:var(--accent);color:#fff;border:none;padding:.5rem .9rem;border-radius:6px;font-size:.85rem;cursor:pointer;}
+button.sec{background:transparent;color:var(--accent);border:1px solid var(--accent);}
+.chartbox{position:relative;height:220px;margin:.5rem 0 1rem;}
+.lbl{font-size:.78rem;color:var(--sub);margin:.4rem 0 -.2rem;}
+table{width:100%;border-collapse:collapse;font-size:.8rem;margin-top:.5rem;}
+th,td{border-bottom:1px solid var(--border);padding:.3rem .4rem;text-align:center;}
+th{color:var(--sub);font-weight:500;}
+tr.cur td{background:rgba(24,95,165,.10);font-weight:600;}
+.pill{display:inline-block;padding:.15rem .55rem;border-radius:20px;font-size:.75rem;font-weight:600;margin-right:.3rem;}
+.pill.good{background:rgba(59,109,17,.15);color:var(--good);}
+.pill.bad{background:rgba(163,45,45,.15);color:var(--bad);}
+.note{font-size:.85rem;color:var(--sub);border-left:3px solid var(--accent);padding:.4rem .7rem;background:rgba(24,95,165,.06);border-radius:0 6px 6px 0;margin:.5rem 0;}
+.interp{font-size:.88rem;margin-top:.4rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Experiment 9 — ASK &amp; FSK</h1>
+<p class="sub">Binary ASK (on-off keying) and BFSK passband transmitters, an AWGN channel, and coherent-correlator versus noncoherent energy/envelope receivers. Time is in units of the bit interval T<sub>b</sub>; carrier = 6 cycles per bit; E<sub>b</sub> is normalized to 1.</p>
+
+<div class="card">
+  <h2 style="margin-top:0">1 · Parameters</h2>
+  <div class="row">
+    <div class="field"><label>E<sub>b</sub>/N<sub>0</sub> (dB)</label><input id="snr" type="range" min="-2" max="14" step="1" value="8"><span id="snrVal">8</span></div>
+    <div class="field"><label>Tone spacing Δf (×1/T<sub>b</sub>)</label><input id="df" type="range" min="0.25" max="3" step="0.05" value="1"><span id="dfVal">1.00</span></div>
+    <div class="field"><label>Carrier phase offset θ (deg)</label><input id="theta" type="range" min="0" max="180" step="5" value="0"><span id="thetaVal">0</span></div>
+  </div>
+  <div class="row">
+    <div class="field"><label>Bits per BER point</label><input id="nbits" type="number" value="4000" min="500" max="20000" step="500"></div>
+    <div class="field"><label>Demo bits</label><input id="demo" type="text" value="10110010" maxlength="12"></div>
+    <button class="sec" id="pHalf">Δf = 1/(2T<sub>b</sub>)</button>
+    <button class="sec" id="pOne">Δf = 1/T<sub>b</sub></button>
+    <button class="sec" id="pBad">Δf = 0.75/T<sub>b</sub></button>
+    <button class="sec" id="pPhase">θ = 90°</button>
+    <button id="runAll">Run simulation</button>
+  </div>
+  <div class="note">Expected: with θ = 0 and orthogonal tones, coherent detection beats noncoherent by roughly 1 dB at the same BER. Non-orthogonal tone spacing raises the BER of both FSK receivers (noncoherent needs Δf = k/T<sub>b</sub>, coherent only Δf = k/(2T<sub>b</sub>)). A carrier phase offset hurts coherent receivers (output scales by cos θ, vanishing at 90°) but leaves envelope/energy detectors untouched.</div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">2 · Passband waveforms</h2>
+  <div class="lbl">Binary ASK (OOK): transmitted vs received (noisy)</div>
+  <div class="chartbox"><canvas id="chWaveASK" role="img" aria-label="Passband binary ASK waveform, transmitted and received with noise">ASK waveform.</canvas></div>
+  <div class="lbl">BFSK: transmitted vs received (noisy)</div>
+  <div class="chartbox"><canvas id="chWaveFSK" role="img" aria-label="Passband BFSK waveform, transmitted and received with noise">BFSK waveform.</canvas></div>
+  <div class="interp" id="waveInterp"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">3 · Power spectra</h2>
+  <div class="chartbox"><canvas id="chPSD" role="img" aria-label="Power spectra of ASK and BFSK signals in decibels versus frequency">Power spectra.</canvas></div>
+  <div class="interp" id="psdInterp"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">4 · Correlator outputs (running integrals over each bit)</h2>
+  <div class="lbl">ASK: coherent correlator, reset every T<sub>b</sub></div>
+  <div class="chartbox"><canvas id="chCorrASK" role="img" aria-label="Running correlator output for ASK">ASK correlator.</canvas></div>
+  <div class="lbl">BFSK: two coherent correlators (tone f₀ and tone f₁)</div>
+  <div class="chartbox"><canvas id="chCorrFSK" role="img" aria-label="Running correlator outputs for the two BFSK tones">BFSK correlators.</canvas></div>
+  <div class="interp" id="corrInterp"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">5 · Decision-statistic histograms</h2>
+  <div class="row">
+    <div class="field"><label>Detector</label>
+      <select id="histSel">
+        <option value="askc">Coherent ASK (correlator)</option>
+        <option value="askn">Noncoherent ASK (energy)</option>
+        <option value="fskc" selected>Coherent BFSK (Z₁ − Z₀)</option>
+        <option value="fskn">Noncoherent BFSK (E₁ − E₀)</option>
+      </select>
+    </div>
+  </div>
+  <div class="chartbox"><canvas id="chHist" role="img" aria-label="Histogram of the decision statistic conditioned on the transmitted bit">Decision statistic histogram.</canvas></div>
+  <div class="interp" id="histInterp"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">6 · BER versus E<sub>b</sub>/N<sub>0</sub></h2>
+  <div class="chartbox" style="height:260px"><canvas id="chBER" role="img" aria-label="Bit error rate curves for coherent and noncoherent ASK and BFSK with theory">BER curves.</canvas></div>
+  <div class="interp" id="berInterp"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">7 · BER versus FSK tone spacing</h2>
+  <div class="chartbox" style="height:260px"><canvas id="chSpace" role="img" aria-label="BFSK bit error rate versus tone spacing for coherent and noncoherent receivers">BER vs tone spacing.</canvas></div>
+  <div class="interp" id="spaceInterp"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">8 · Mandatory validation — BFSK basis-signal inner products</h2>
+  <p class="sub" style="margin-top:-.3rem">Normalized inner products of s₀(t) and s₁(t) over one bit interval, computed numerically from the sampled waveforms and compared with the analytic sinc expressions.</p>
+  <div id="innerTable"></div>
+  <div class="interp" id="innerInterp"></div>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const SPS = 64;          // samples per bit interval (Tb = 1)
+const FC = 6;            // carrier cycles per bit
+const SQ2 = Math.SQRT2;
+
+function isDark(){ return matchMedia('(prefers-color-scheme: dark)').matches; }
+const ink = () => isDark() ? '#eee' : '#1a1a1a';
+const gridc = () => isDark() ? '#3a3a3d' : '#e1e0d9';
+let charts = {};
+function upsertChart(id, config){ if(charts[id]) charts[id].destroy(); charts[id] = new Chart(document.getElementById(id), config); }
+function xyOpts(xLabel, yLabel, extra){
+  const o = { responsive:true, maintainAspectRatio:false, animation:false,
+    scales:{ x:{ type:'linear', ticks:{color:ink()}, grid:{color:gridc()}, title:{display:true,text:xLabel,color:ink()} },
+             y:{ ticks:{color:ink()}, grid:{color:gridc()}, title:{display:true,text:yLabel,color:ink()} } },
+    plugins:{ legend:{labels:{color:ink()}} } };
+  if(extra){ if(extra.ylog){ o.scales.y.type='logarithmic'; o.scales.y.min=extra.ymin||1e-4; o.scales.y.max=1; } if(extra.xmin!==undefined) o.scales.x.min=extra.xmin; if(extra.xmax!==undefined) o.scales.x.max=extra.xmax; }
+  return o;
+}
+function pts(xs, ys){ return xs.map((x,i)=>({x:x, y:ys[i]})); }
+
+function gauss(){ let u=0; while(u===0) u=Math.random(); const v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+function randBits(n){ const b=new Array(n); for(let i=0;i<n;i++) b[i]=Math.random()<0.5?0:1; return b; }
+function erfc(x){ const z=Math.abs(x); const t=1/(1+0.5*z);
+  const r=t*Math.exp(-z*z-1.26551223+t*(1.00002368+t*(0.37409196+t*(0.09678418+t*(-0.18628806+t*(0.27886807+t*(-1.13520398+t*(1.48851587+t*(-0.82215223+t*0.17087277)))))))));
+  return x>=0 ? r : 2-r; }
+function Q(x){ return 0.5*erfc(x/SQ2); }
+function sincn(x){ if(Math.abs(x)<1e-12) return 1; return Math.sin(Math.PI*x)/(Math.PI*x); }
+
+// one bit interval of a tone, midpoint sampled; phase in radians
+function tone(f, phase, useSin){
+  const a = new Array(SPS);
+  for(let n=0;n<SPS;n++){ const arg = 2*Math.PI*f*(n+0.5)/SPS + phase; a[n] = useSin ? Math.sin(arg) : Math.cos(arg); }
+  return a;
+}
+
+// ---------- Transmitters ----------
+function txASK(bits, theta){            // OOK: s1 = 2cos(2 pi fc t + theta), s0 = 0  (average Eb = 1)
+  const c = tone(FC, theta, false), out = new Array(bits.length*SPS);
+  for(let i=0;i<bits.length;i++) for(let n=0;n<SPS;n++) out[i*SPS+n] = bits[i] ? 2*c[n] : 0;
+  return out;
+}
+function txBFSK(bits, df, theta){       // s_i = sqrt(2) cos(2 pi f_i t + theta), Eb = 1
+  const c0 = tone(FC-df/2, theta, false), c1 = tone(FC+df/2, theta, false), out = new Array(bits.length*SPS);
+  for(let i=0;i<bits.length;i++) for(let n=0;n<SPS;n++) out[i*SPS+n] = SQ2*(bits[i] ? c1[n] : c0[n]);
+  return out;
+}
+// ---------- Channel ----------
+function awgn(sig, ebn0dB){ const N0 = Math.pow(10, -ebn0dB/10), s = Math.sqrt(N0/2*SPS); return sig.map(v=>v+s*gauss()); }
+
+// ---------- Receivers (statistics per bit) ----------
+// Fast end-to-end link: returns per-bit decision statistics for both receivers.
+function runLink(scheme, bits, ebn0dB, df, theta){
+  const N0 = Math.pow(10, -ebn0dB/10), sg = Math.sqrt(N0/2*SPS);
+  const out = new Array(bits.length);
+  if(scheme === 'ask'){
+    const c = tone(FC,0,false), s = tone(FC,0,true), tx = tone(FC,theta,false);
+    for(let i=0;i<bits.length;i++){
+      let I=0, Qd=0;
+      for(let n=0;n<SPS;n++){ const r = (bits[i] ? 2*tx[n] : 0) + sg*gauss(); I += r*c[n]; Qd += r*s[n]; }
+      I/=SPS; Qd/=SPS;
+      out[i] = { b:bits[i], coh:I, non:I*I+Qd*Qd };
+    }
+    return { stats:out, cohThr:0.5, nonThr:0.5+N0/2 };
+  }
+  const f0 = FC-df/2, f1 = FC+df/2;
+  const c0=tone(f0,0,false), s0=tone(f0,0,true), c1=tone(f1,0,false), s1=tone(f1,0,true);
+  const t0=tone(f0,theta,false), t1=tone(f1,theta,false);
+  for(let i=0;i<bits.length;i++){
+    let I0=0,Q0=0,I1=0,Q1=0;
+    for(let n=0;n<SPS;n++){
+      const r = SQ2*(bits[i] ? t1[n] : t0[n]) + sg*gauss();
+      I0 += r*c0[n]; Q0 += r*s0[n]; I1 += r*c1[n]; Q1 += r*s1[n];
+    }
+    I0/=SPS; Q0/=SPS; I1/=SPS; Q1/=SPS;
+    out[i] = { b:bits[i], coh:I1-I0, non:(I1*I1+Q1*Q1)-(I0*I0+Q0*Q0), z0:I0, z1:I1 };
+  }
+  return { stats:out, cohThr:0, nonThr:0 };
+}
+function berOf(link, key){
+  const thr = key==='coh' ? link.cohThr : link.nonThr; let e=0;
+  for(const s of link.stats){ if((s[key] > thr ? 1 : 0) !== s.b) e++; }
+  return e/link.stats.length;
+}
+
+// ---------- FFT / PSD ----------
+function fft(re, im){
+  const n = re.length;
+  for(let i=1,j=0;i<n;i++){ let bit=n>>1; for(;j&bit;bit>>=1) j^=bit; j^=bit; if(i<j){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; } }
+  for(let len=2;len<=n;len<<=1){
+    const ang=-2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang);
+    for(let i=0;i<n;i+=len){
+      let cr=1, ci=0;
+      for(let k=0;k<len/2;k++){
+        const a=i+k, b=i+k+len/2;
+        const vr=re[b]*cr-im[b]*ci, vi=re[b]*ci+im[b]*cr;
+        re[b]=re[a]-vr; im[b]=im[a]-vi; re[a]+=vr; im[a]+=vi;
+        const nr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=nr;
+      }
+    }
+  }
+}
+function welch(x, L){
+  const hop=L/2, w=new Array(L); let wp=0;
+  for(let i=0;i<L;i++){ w[i]=0.5-0.5*Math.cos(2*Math.PI*i/(L-1)); wp+=w[i]*w[i]; }
+  const acc=new Array(L/2).fill(0); let segs=0;
+  for(let st=0; st+L<=x.length; st+=hop){
+    const re=new Array(L), im=new Array(L).fill(0);
+    for(let i=0;i<L;i++) re[i]=x[st+i]*w[i];
+    fft(re,im);
+    for(let k=0;k<L/2;k++) acc[k]+=(re[k]*re[k]+im[k]*im[k])/wp;
+    segs++;
+  }
+  return acc.map(v=>v/Math.max(segs,1));
+}
+
+// ---------- UI helpers ----------
+function getP(){
+  return { snr:+document.getElementById('snr').value, df:+document.getElementById('df').value,
+    theta:(+document.getElementById('theta').value)*Math.PI/180, thetaDeg:+document.getElementById('theta').value,
+    nb:Math.max(500, +document.getElementById('nbits').value||4000),
+    demo:(document.getElementById('demo').value||'10110010').replace(/[^01]/g,'') };
+}
+document.getElementById('snr').addEventListener('input', e=>{ document.getElementById('snrVal').textContent=e.target.value; });
+document.getElementById('df').addEventListener('input', e=>{ document.getElementById('dfVal').textContent=(+e.target.value).toFixed(2); });
+document.getElementById('theta').addEventListener('input', e=>{ document.getElementById('thetaVal').textContent=e.target.value; });
+function setDf(v){ document.getElementById('df').value=v; document.getElementById('dfVal').textContent=v.toFixed(2); }
+document.getElementById('pHalf').onclick = ()=>{ setDf(0.5); runAll(); };
+document.getElementById('pOne').onclick = ()=>{ setDf(1); runAll(); };
+document.getElementById('pBad').onclick = ()=>{ setDf(0.75); runAll(); };
+document.getElementById('pPhase').onclick = ()=>{ document.getElementById('theta').value=90; document.getElementById('thetaVal').textContent='90'; runAll(); };
+document.getElementById('histSel').addEventListener('change', ()=>{ plotHist(getP()); });
+
+function bitsToStr(a){ return a.join(''); }
+
+// ---------- Section 2: waveforms ----------
+function plotWaves(p){
+  const bits = p.demo.split('').map(Number);
+  if(bits.length===0) return;
+  const N = bits.length*SPS, xs = Array.from({length:N}, (_,i)=>(i+0.5)/SPS);
+  const txA = txASK(bits, p.theta), rxA = awgn(txA, p.snr);
+  const txF = txBFSK(bits, p.df, p.theta), rxF = awgn(txF, p.snr);
+  const mk = (id, tx, rx)=> upsertChart(id, { type:'line', data:{ datasets:[
+    {label:'Received (noisy)', data:pts(xs,rx), borderColor:'rgba(136,135,128,0.55)', borderWidth:1, pointRadius:0},
+    {label:'Transmitted', data:pts(xs,tx), borderColor:'#2a78d6', borderWidth:1.3, pointRadius:0}
+  ]}, options: xyOpts('t / T_b','amplitude') });
+  mk('chWaveASK', txA, rxA); mk('chWaveFSK', txF, rxF);
+  document.getElementById('waveInterp').innerHTML = `<b>Observation:</b> bits ${bitsToStr(bits)} — ASK switches the carrier amplitude fully on or off, while BFSK keeps constant amplitude and swaps between f₀ = ${(FC-p.df/2).toFixed(2)} and f₁ = ${(FC+p.df/2).toFixed(2)} cycles per bit (spacing Δf = ${p.df.toFixed(2)}/T_b). Constant envelope is why FSK tolerates nonlinear amplifiers while ASK does not.`;
+}
+
+// ---------- Section 3: spectra ----------
+function plotPSD(p){
+  const bits = randBits(512);
+  const a = welch(txASK(bits, 0), 1024), f = welch(txBFSK(bits, p.df, 0), 1024);
+  const peak = Math.max(Math.max.apply(null,a), Math.max.apply(null,f)) || 1;
+  const xs = a.map((_,k)=>k*SPS/1024), keep = xs.filter(x=>x<=12).length;
+  const toDb = arr => arr.slice(0,keep).map(v=>Math.max(10*Math.log10(Math.max(v/peak,1e-12)), -80));
+  upsertChart('chPSD', { type:'line', data:{ datasets:[
+    {label:'ASK', data:pts(xs.slice(0,keep), toDb(a)), borderColor:'#2a78d6', borderWidth:1.3, pointRadius:0},
+    {label:'BFSK', data:pts(xs.slice(0,keep), toDb(f)), borderColor:'#e34948', borderWidth:1.3, pointRadius:0}
+  ]}, options: xyOpts('frequency (×1/T_b)','power (dB rel. peak)', {xmin:0, xmax:12}) });
+  document.getElementById('psdInterp').innerHTML = `<b>Observation:</b> ASK concentrates its power in a single main lobe around the carrier (f = ${FC}/T_b) plus a discrete carrier line from the on-off amplitude mean, with lobe width set by the bit rate. BFSK shows two lobes centered on f₀ and f₁; as Δf shrinks toward 1/T_b they merge into one lobe, and as Δf grows the total occupied bandwidth widens (roughly Δf + 2/T_b) — the bandwidth cost of FSK's orthogonality.`;
+}
+
+// ---------- Section 4: correlator outputs ----------
+function plotCorr(p){
+  const bits = p.demo.split('').map(Number); if(bits.length===0) return;
+  const N = bits.length*SPS, xs = Array.from({length:N}, (_,i)=>(i+0.5)/SPS);
+  const c = tone(FC,0,false), rxA = awgn(txASK(bits,p.theta), p.snr);
+  const runA = new Array(N); const decA = [];
+  for(let i=0;i<bits.length;i++){ let acc=0; for(let n=0;n<SPS;n++){ acc += rxA[i*SPS+n]*c[n]/SPS; runA[i*SPS+n]=acc; } decA.push(acc>0.5?1:0); }
+  upsertChart('chCorrASK', { type:'line', data:{ datasets:[
+    {label:'Correlator output Z(t)', data:pts(xs,runA), borderColor:'#1baf7a', borderWidth:1.4, pointRadius:0},
+    {label:'Threshold (0.5)', data:pts(xs, xs.map(()=>0.5)), borderColor:'#888780', borderWidth:1, borderDash:[4,3], pointRadius:0}
+  ]}, options: xyOpts('t / T_b','Z(t)') });
+  const f0=FC-p.df/2, f1=FC+p.df/2, c0=tone(f0,0,false), c1=tone(f1,0,false), rxF = awgn(txBFSK(bits,p.df,p.theta), p.snr);
+  const r0=new Array(N), r1=new Array(N); const decF=[];
+  for(let i=0;i<bits.length;i++){ let a0=0,a1=0; for(let n=0;n<SPS;n++){ const r=rxF[i*SPS+n]; a0+=r*c0[n]/SPS; a1+=r*c1[n]/SPS; r0[i*SPS+n]=a0; r1[i*SPS+n]=a1; } decF.push(a1>a0?1:0); }
+  upsertChart('chCorrFSK', { type:'line', data:{ datasets:[
+    {label:'Z₀(t) (tone f₀)', data:pts(xs,r0), borderColor:'#eb6834', borderWidth:1.4, pointRadius:0},
+    {label:'Z₁(t) (tone f₁)', data:pts(xs,r1), borderColor:'#6250d6', borderWidth:1.4, pointRadius:0}
+  ]}, options: xyOpts('t / T_b','Z(t)') });
+  const eA = decA.filter((d,i)=>d!==bits[i]).length, eF = decF.filter((d,i)=>d!==bits[i]).length;
+  document.getElementById('corrInterp').innerHTML = `<span class="pill ${eA===0?'good':'bad'}">ASK sent ${bitsToStr(bits)} → detected ${bitsToStr(decA)} (${eA} errors)</span><span class="pill ${eF===0?'good':'bad'}">BFSK sent ${bitsToStr(bits)} → detected ${bitsToStr(decF)} (${eF} errors)</span><br><b>Observation:</b> each integrator is reset at bit boundaries and the decision is taken from the value at the <em>end</em> of the bit (ramp to ≈ 1 for a transmitted ASK 1, to ≈ ${(SQ2/2).toFixed(2)} on the correct BFSK branch). The correct branch ramps while the wrong one wanders around zero (or around a leaked fraction of the signal when tones are not orthogonal).`;
+}
+
+// ---------- Section 5: histograms ----------
+function plotHist(p){
+  const sel = document.getElementById('histSel').value;
+  const scheme = sel.startsWith('ask') ? 'ask' : 'fsk', key = sel.endsWith('c') ? 'coh' : 'non';
+  const link = runLink(scheme, randBits(p.nb), p.snr, p.df, p.theta);
+  const thr = key==='coh' ? link.cohThr : link.nonThr;
+  const v0 = link.stats.filter(s=>s.b===0).map(s=>s[key]), v1 = link.stats.filter(s=>s.b===1).map(s=>s[key]);
+  const all = v0.concat(v1); let lo = Math.min.apply(null,all), hi = Math.max.apply(null,all);
+  if(!(hi>lo)){ hi=lo+1; }
+  const bins=40, w=(hi-lo)/bins, h0=new Array(bins).fill(0), h1=new Array(bins).fill(0);
+  v0.forEach(v=>{ let b=Math.min(bins-1, Math.floor((v-lo)/w)); h0[b]++; });
+  v1.forEach(v=>{ let b=Math.min(bins-1, Math.floor((v-lo)/w)); h1[b]++; });
+  const xs = h0.map((_,i)=>lo+(i+0.5)*w);
+  upsertChart('chHist', { type:'line', data:{ datasets:[
+    {label:'bit 0 sent', data:pts(xs,h0), borderColor:'#eb6834', backgroundColor:'rgba(235,104,52,0.30)', fill:'origin', borderWidth:1.3, pointRadius:0, stepped:'middle'},
+    {label:'bit 1 sent', data:pts(xs,h1), borderColor:'#2a78d6', backgroundColor:'rgba(42,120,214,0.30)', fill:'origin', borderWidth:1.3, pointRadius:0, stepped:'middle'}
+  ]}, options: xyOpts('decision statistic','count') });
+  const ber = berOf(link, key);
+  const m0 = v0.reduce((a,b)=>a+b,0)/Math.max(v0.length,1), m1 = v1.reduce((a,b)=>a+b,0)/Math.max(v1.length,1);
+  document.getElementById('histInterp').innerHTML = `<b>Observation:</b> mean statistic = ${m0.toFixed(3)} for bit 0 and ${m1.toFixed(3)} for bit 1, decision threshold ${thr.toFixed(3)}; measured BER = ${ber.toExponential(2)} over ${p.nb} bits. `+
+    (key==='coh' ? 'Coherent statistics are Gaussian with the same variance under both hypotheses, so the overlap between the two bell curves directly sets the BER.' : 'Noncoherent energy statistics are not Gaussian: the "off" hypothesis is noise-only (chi-square, piled against zero) and the "on" hypothesis is Rician/non-central chi-square with a longer tail, which is why noncoherent detection costs about 1 dB.') +
+    (p.thetaDeg>0 && key==='coh' ? ` With θ = ${p.thetaDeg}° the signal component is scaled by cos θ = ${Math.cos(p.theta).toFixed(2)}, shrinking the separation between the two clusters.` : '');
+}
+
+// ---------- Section 6: BER vs Eb/N0 ----------
+function plotBER(p){
+  const snrs=[0,2,4,6,8,10,12], bits=randBits(p.nb);
+  const r = { ac:[], an:[], fc:[], fn:[] };
+  snrs.forEach(s=>{
+    const la = runLink('ask', bits, s, p.df, p.theta), lf = runLink('fsk', bits, s, p.df, p.theta);
+    r.ac.push(berOf(la,'coh')); r.an.push(berOf(la,'non')); r.fc.push(berOf(lf,'coh')); r.fn.push(berOf(lf,'non'));
+  });
+  const clean = arr => arr.map(v=> v>0 ? v : null);
+  const g=[]; for(let s=0;s<=12.01;s+=0.5) g.push(s);
+  const th1 = g.map(s=>Q(Math.sqrt(Math.pow(10,s/10)))), th2 = g.map(s=>0.5*Math.exp(-Math.pow(10,s/10)/2));
+  const ds = (label, arr, col, dash)=>({label:label, data:pts(snrs,clean(arr)), borderColor:col, backgroundColor:col, borderWidth:1.6, borderDash:dash||[], pointRadius:3, spanGaps:false});
+  upsertChart('chBER', { type:'line', data:{ datasets:[
+    ds('Coherent ASK', r.ac, '#2a78d6'), ds('Noncoherent ASK (energy)', r.an, '#85b7eb', [5,3]),
+    ds('Coherent BFSK', r.fc, '#eb6834'), ds('Noncoherent BFSK (energy)', r.fn, '#e34948', [5,3]),
+    {label:'Theory: Q(√(Eb/N0))', data:pts(g,th1), borderColor:'#888780', borderWidth:1.2, pointRadius:0},
+    {label:'Theory: ½exp(−Eb/2N0)', data:pts(g,th2), borderColor:'#888780', borderWidth:1.2, borderDash:[2,3], pointRadius:0}
+  ]}, options: xyOpts('Eb/N0 (dB)','BER', {ylog:true, ymin:1e-4, xmin:0, xmax:12}) });
+  const i8 = snrs.indexOf(8);
+  document.getElementById('berInterp').innerHTML = `<b>Observation:</b> at 8 dB (Δf = ${p.df.toFixed(2)}/T_b, θ = ${p.thetaDeg}°): coherent BFSK ${r.fc[i8].toExponential(1)}, noncoherent BFSK ${r.fn[i8].toExponential(1)}, coherent ASK ${r.ac[i8].toExponential(1)}, noncoherent ASK ${r.an[i8].toExponential(1)}; theory Q(√(Eb/N0)) = ${Q(Math.sqrt(Math.pow(10,0.8))).toExponential(1)}, ½exp(−Eb/2N0) = ${(0.5*Math.exp(-Math.pow(10,0.8)/2)).toExponential(1)}. `+
+    (Math.abs(p.df-Math.round(p.df))<1e-6 && p.thetaDeg===0 ? 'With orthogonal tones and θ = 0 the coherent curves track Q(√(Eb/N0)) and noncoherent BFSK tracks ½exp(−Eb/2N0), as theory predicts (noncoherent costs ≈ 1 dB). ' : 'Curves depart from the orthogonal, θ = 0 theory lines here because of non-orthogonal tone spacing and/or a carrier phase offset — see sections 7 and 8 to diagnose which. ') +
+    'Points with zero observed errors are omitted (log axis); increase bits per BER point to resolve lower BERs.';
+}
+
+// ---------- Section 7: BER vs tone spacing ----------
+function plotSpacing(p){
+  const dfs=[0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.5,3], bits=randBits(p.nb);
+  const c=[], n=[];
+  dfs.forEach(d=>{ const l = runLink('fsk', bits, p.snr, d, p.theta); c.push(berOf(l,'coh')); n.push(berOf(l,'non')); });
+  const g=[]; for(let d=0.25; d<=3.001; d+=0.05) g.push(d);
+  const gam = Math.pow(10,p.snr/10);
+  const th = g.map(d=>Q(Math.sqrt((1-sincn(2*d))*gam)));
+  const clean = arr => arr.map(v=> v>0 ? v : null);
+  upsertChart('chSpace', { type:'line', data:{ datasets:[
+    {label:'Coherent BFSK (sim)', data:pts(dfs,clean(c)), borderColor:'#eb6834', backgroundColor:'#eb6834', borderWidth:1.6, pointRadius:3},
+    {label:'Noncoherent BFSK (sim)', data:pts(dfs,clean(n)), borderColor:'#e34948', backgroundColor:'#e34948', borderWidth:1.6, borderDash:[5,3], pointRadius:3},
+    {label:'Coherent theory Q(√((1−ρ)Eb/N0)), θ = 0', data:pts(g,th), borderColor:'#888780', borderWidth:1.2, pointRadius:0}
+  ]}, options: xyOpts('tone spacing Δf (×1/T_b)','BER', {ylog:true, ymin:1e-4, xmin:0.25, xmax:3}) });
+  document.getElementById('spaceInterp').innerHTML = `<b>Observation (Eb/N0 = ${p.snr} dB):</b> coherent BER dips wherever ρ = sinc(2ΔfT_b) is zero or negative — it is already orthogonal at Δf = 0.5/T_b and is actually best near Δf ≈ 0.715/T_b where ρ ≈ −0.217 (the theoretical optimum). Noncoherent BER is poor at non-integer multiples of 1/T_b and recovers only at Δf = 1, 2, 3 /T_b, because its energy detectors also see the quadrature leakage |sinc(ΔfT_b)|. Diagnostic test: the inner-product table in section 8.`;
+}
+
+// ---------- Section 8: mandatory validation ----------
+function plotInner(p){
+  const list = [0.25,0.5,0.75,1,1.5,2]; if(list.indexOf(p.df)<0) list.push(p.df); list.sort((a,b)=>a-b);
+  let rows = '<table><tr><th>Δf·T_b</th><th>⟨s₀,s₁⟩/E (numeric)</th><th>sinc(2Δf) (analytic)</th><th>Quadrature ⟨s₀,ŝ₁⟩/E</th><th>Noncoh. leakage (numeric)</th><th>|sinc(Δf)| (analytic)</th><th>Coherent orthogonal?</th><th>Noncoherent orthogonal?</th></tr>';
+  let cur=null;
+  list.forEach(d=>{
+    const c0=tone(FC-d/2,0,false), c1=tone(FC+d/2,0,false), s1=tone(FC+d/2,0,true);
+    let a=0,b=0; for(let n=0;n<SPS;n++){ a+=c0[n]*c1[n]; b+=c0[n]*s1[n]; }
+    const rI=a/(SPS/2), rQ=b/(SPS/2), leak=Math.sqrt(rI*rI+rQ*rQ);
+    const an2=sincn(2*d), an1=Math.abs(sincn(d));
+    const co=Math.abs(rI)<0.02, no=leak<0.02, isCur=Math.abs(d-p.df)<1e-9;
+    if(isCur) cur={rI:rI,leak:leak,co:co,no:no,d:d};
+    rows += `<tr class="${isCur?'cur':''}"><td>${d.toFixed(2)}</td><td>${rI.toFixed(4)}</td><td>${an2.toFixed(4)}</td><td>${rQ.toFixed(4)}</td><td>${leak.toFixed(4)}</td><td>${an1.toFixed(4)}</td><td>${co?'yes':'no'}</td><td>${no?'yes':'no'}</td></tr>`;
+  });
+  rows += '</table>';
+  document.getElementById('innerTable').innerHTML = rows;
+  document.getElementById('innerInterp').innerHTML = `<span class="pill ${cur.co?'good':'bad'}">Current Δf = ${cur.d.toFixed(2)}/T_b: ⟨s₀,s₁⟩/E = ${cur.rI.toFixed(4)} → ${cur.co?'orthogonal for coherent detection':'NOT orthogonal for coherent detection'}</span><span class="pill ${cur.no?'good':'bad'}">noncoherent leakage ${cur.leak.toFixed(4)} → ${cur.no?'orthogonal for noncoherent detection':'NOT orthogonal for noncoherent detection'}</span><br>`+
+    `<b>Orthogonality condition:</b> ⟨s₀,s₁⟩ ∝ sinc(2ΔfT_b) vanishes when 2ΔfT_b is a nonzero integer, so coherent FSK needs Δf = k/(2T_b), minimum 1/(2T_b) (this is MSK-like spacing). A noncoherent receiver does not know the carrier phase, so each tone must also be orthogonal to the <em>quadrature</em> version of the other, giving leakage |sinc(ΔfT_b)|, which vanishes only for Δf = k/T_b — minimum 1/T_b, twice the coherent spacing. Numeric values match the analytic expressions to within the small midpoint-sampling error (≈ 1/SPS²); e.g. at Δf = 0.5/T_b the in-phase product is ≈ 0 but the noncoherent leakage is ≈ 0.64, which is why noncoherent BFSK fails there.`;
+}
+
+function runAll(){
+  const p = getP();
+  plotWaves(p); plotPSD(p); plotCorr(p); plotHist(p); plotBER(p); plotSpacing(p); plotInner(p);
+}
+document.getElementById('runAll').onclick = runAll;
+runAll();
+</script>
+</body>
+</html>
